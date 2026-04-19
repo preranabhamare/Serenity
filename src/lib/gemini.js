@@ -1,6 +1,6 @@
 const geminiApiKey = process.env.REACT_APP_GEMINI_API_KEY;
-const geminiModel = process.env.REACT_APP_GEMINI_MODEL ;
-const flaskUrl = process.env.REACT_APP_FLASK_URL || 'http://localhost:5000';
+const geminiModel = process.env.REACT_APP_GEMINI_MODEL;
+const flaskUrl = process.env.REACT_APP_FLASK_URL || 'https://reactor-eardrum-defame.ngrok-free.dev';
 
 export const hasGeminiConfig = Boolean(geminiApiKey);
 
@@ -41,26 +41,42 @@ function extractGeminiText(data) {
 
 async function detectEmotions(text) {
   try {
+    console.log('[Emotion] Starting detection', {
+      flaskUrl,
+      endpoint: `${flaskUrl}/predict`,
+      textPreview: text.slice(0, 80),
+    });
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
 
     const response = await fetch(`${flaskUrl}/predict`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
+      },
       body: JSON.stringify({ text }),
       signal: controller.signal,
     });
 
     clearTimeout(timeoutId);
 
+    console.log('[Emotion] Response received', {
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+    });
+
     if (!response.ok) {
       throw new Error(`Flask API error: ${response.status}`);
     }
 
     const data = await response.json();
+    console.log('[Emotion] Payload', data);
     return data.predictions || {};
   } catch (error) {
-    console.warn('Emotion detection unavailable:', error.message);
+    console.error('[Emotion] Detection failed', error);
     return {};
   }
 }
@@ -69,9 +85,18 @@ export async function generateGeminiReply(messages) {
   if (!hasGeminiConfig) {
     throw new Error('Gemini API key is missing. Add REACT_APP_GEMINI_API_KEY to continue.');
   }
+  if (!geminiModel) {
+    throw new Error('Gemini model is missing. Add REACT_APP_GEMINI_MODEL to continue.');
+  }
+
+  console.log('[Gemini] Starting request', {
+    hasApiKey: Boolean(geminiApiKey),
+    geminiModel,
+    messageCount: messages.length,
+  });
 
   // Detect emotions from latest user message
-  const lastUserMsg = messages.findLast(m => m.role === 'user')?.text || '';
+  const lastUserMsg = messages.findLast((m) => m.role === 'user')?.text || '';
   const emotions = await detectEmotions(lastUserMsg);
   const topEmotions = Object.entries(emotions)
     .slice(0, 3)
@@ -80,6 +105,7 @@ export async function generateGeminiReply(messages) {
   const emotionContext = `Emotion analysis of latest user message: ${topEmotions}. Tailor your empathetic response to acknowledge these emotions if relevant.`;
 
   const enrichedSystemPrompt = [THERAPIST_SYSTEM_PROMPT, emotionContext].join('\n\n');
+  console.log('[Gemini] Emotion context ready', { emotions, topEmotions });
 
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`,
@@ -102,7 +128,14 @@ export async function generateGeminiReply(messages) {
     }
   );
 
+  console.log('[Gemini] Response received', {
+    ok: response.ok,
+    status: response.status,
+    statusText: response.statusText,
+  });
+
   const data = await response.json();
+  console.log('[Gemini] Payload', data);
 
   if (!response.ok) {
     throw new Error(data?.error?.message || 'Gemini request failed.');
