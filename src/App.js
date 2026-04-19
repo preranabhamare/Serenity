@@ -3,6 +3,65 @@ import './App.css';
 import { generateGeminiReply, hasGeminiConfig } from './lib/gemini';
 import { hasSupabaseConfig, supabase } from './lib/supabase';
 
+function IconBase({ children }) {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      {children}
+    </svg>
+  );
+}
+
+function ChatIcon() {
+  return <IconBase><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></IconBase>;
+}
+
+function PulseIcon() {
+  return <IconBase><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></IconBase>;
+}
+
+function BookIcon() {
+  return <IconBase><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" /></IconBase>;
+}
+
+function HeartIcon() {
+  return <IconBase><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></IconBase>;
+}
+
+function PlusIcon() {
+  return <IconBase><path d="M12 5v14" /><path d="M5 12h14" /></IconBase>;
+}
+
+function TrashIcon() {
+  return (
+    <IconBase>
+      <path d="M3 6h18" />
+      <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </IconBase>
+  );
+}
+
+function MicIcon() {
+  return (
+    <IconBase>
+      <path d="M12 15a4 4 0 0 0 4-4V7a4 4 0 1 0-8 0v4a4 4 0 0 0 4 4z" />
+      <path d="M19 11a7 7 0 0 1-14 0" />
+      <path d="M12 18v4" />
+      <path d="M8 22h8" />
+    </IconBase>
+  );
+}
+
+function SendIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M3.4 20.4 21 12 3.4 3.6 3 10.1l12 1.9-12 1.9z" />
+    </svg>
+  );
+}
+
 const NAV_ITEMS = [
   { id: 'session', label: 'Session', icon: <ChatIcon /> },
   { id: 'mood', label: 'Mood', icon: <PulseIcon /> },
@@ -30,6 +89,8 @@ const BREATH_PHASES = [
   { label: 'Exhale', duration: 4, instruction: 'Breathe out slowly through your mouth' },
   { label: 'Hold', duration: 4, instruction: 'Pause before the next breath' },
 ];
+const CHAT_TITLE_PATTERN = /^Chat (\d+)$/;
+const CHAT_HEADER_PROMPT = 'How are you feeling today?';
 const INITIAL_ASSISTANT_MESSAGE =
   'Hello, I am Ai Therapist. This is a calm, judgment-free space. How are you feeling today?';
 const DEMO_ENTRIES = [2, 3, 2, 4, 3, 3, 4, 3, 5, 4, 3, 4, 4, 4].map((value, index, values) => ({
@@ -38,6 +99,67 @@ const DEMO_ENTRIES = [2, 3, 2, 4, 3, 3, 4, 3, 5, 4, 3, 4, 4, 4].map((value, inde
   tags: [],
   created_at: new Date(Date.now() - (values.length - index - 1) * 86400000).toISOString(),
 }));
+
+function getDefaultChatTitle(chatNumber) {
+  return `Chat ${chatNumber}`;
+}
+
+function normalizeChatTitle(title, fallback = '') {
+  const normalized = `${title ?? ''}`.replace(/\s+/g, ' ').trim();
+  return normalized || fallback;
+}
+
+function getFirstUserMessageText(messages) {
+  return messages.find((message) => message.role === 'user')?.text ?? '';
+}
+
+function buildAutoChatTitle(messageText, fallbackTitle) {
+  const normalizedFallback = normalizeChatTitle(fallbackTitle, 'Chat');
+  const normalizedMessage = normalizeChatTitle(messageText);
+
+  if (!normalizedMessage) {
+    return normalizedFallback;
+  }
+
+  const cleanedMessage = normalizedMessage
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/[.!?,;:]+$/g, '')
+    .trim();
+  const shortened = cleanedMessage.split(' ').filter(Boolean).slice(0, 8).join(' ');
+  const candidateTitle = normalizeChatTitle(shortened, normalizedFallback);
+
+  if (candidateTitle.length <= 52) {
+    return candidateTitle;
+  }
+
+  return `${candidateTitle.slice(0, 49).trimEnd()}...`;
+}
+
+function isCustomSessionTitle(currentTitle, sessionMessages) {
+  const normalizedTitle = normalizeChatTitle(currentTitle);
+
+  if (!normalizedTitle || CHAT_TITLE_PATTERN.test(normalizedTitle)) {
+    return false;
+  }
+
+  const firstUserMessage = getFirstUserMessageText(sessionMessages);
+
+  if (!firstUserMessage) {
+    return true;
+  }
+
+  return normalizedTitle !== buildAutoChatTitle(firstUserMessage, normalizedTitle);
+}
+
+function resolveSessionTitle(currentTitle, sessionMessages, fallbackTitle) {
+  const normalizedCurrent = normalizeChatTitle(currentTitle);
+
+  if (isCustomSessionTitle(normalizedCurrent, sessionMessages)) {
+    return normalizedCurrent;
+  }
+
+  return buildAutoChatTitle(getFirstUserMessageText(sessionMessages), normalizedCurrent || fallbackTitle);
+}
 
 function App() {
   const [session, setSession] = useState(null);
@@ -54,7 +176,7 @@ function App() {
   const [messages, setMessages] = useState([{ role: 'assistant', text: INITIAL_ASSISTANT_MESSAGE }]);
   const [draft, setDraft] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [chatStatus, setChatStatus] = useState(
+  const [, setChatStatus] = useState(
     hasGeminiConfig
       ? 'Your conversations will be stored in Supabase.'
       : 'Gemini API key is missing. Add REACT_APP_GEMINI_API_KEY to enable replies.'
@@ -62,7 +184,6 @@ function App() {
   const [sessionList, setSessionList] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [isSessionLoading, setIsSessionLoading] = useState(false);
-  const [openSessions, setOpenSessions] = useState({});
   const [isBreathingOpen, setIsBreathingOpen] = useState(false);
   const [breathRunning, setBreathRunning] = useState(false);
   const [breathPhase, setBreathPhase] = useState(0);
@@ -73,10 +194,29 @@ function App() {
   const [moodEntries, setMoodEntries] = useState(DEMO_ENTRIES);
   const [moodStatus, setMoodStatus] = useState('Sign in to load your mood history.');
   const [isMoodSaving, setIsMoodSaving] = useState(false);
+  const [draftSessionTitle, setDraftSessionTitle] = useState('');
+  const [chatTitleInput, setChatTitleInput] = useState('');
   const messagesRef = useRef(null);
 
   const userId = session?.user?.id ?? null;
   const profileLabel = session?.user?.user_metadata?.display_name || session?.user?.email || 'Signed in user';
+  const activeSession = useMemo(
+    () => sessionList.find((item) => item.id === activeSessionId) ?? null,
+    [sessionList, activeSessionId]
+  );
+  const nextChatNumber = useMemo(
+    () =>
+      sessionList.reduce((max, item) => {
+        const match = item.title?.match(CHAT_TITLE_PATTERN);
+        return Math.max(max, match ? Number(match[1]) : 0);
+      }, 0) + 1,
+    [sessionList]
+  );
+  const defaultChatTitle = useMemo(() => getDefaultChatTitle(nextChatNumber), [nextChatNumber]);
+
+  useEffect(() => {
+    setChatTitleInput(activeSession?.title || draftSessionTitle || defaultChatTitle);
+  }, [activeSession?.id, activeSession?.title, draftSessionTitle, defaultChatTitle]);
 
   const recentMoodEntries = useMemo(() => {
     const sorted = [...moodEntries].sort(
@@ -133,6 +273,7 @@ function App() {
           setActiveSessionId(null);
           setMessages([{ role: 'assistant', text: INITIAL_ASSISTANT_MESSAGE }]);
           setDraft('');
+          setDraftSessionTitle('');
           setChatStatus(
             hasGeminiConfig
               ? 'New chat ready. Your next message will start a stored Gemini session.'
@@ -250,7 +391,7 @@ function App() {
         setSessionList([]);
         setActiveSessionId(null);
         setMessages([{ role: 'assistant', text: INITIAL_ASSISTANT_MESSAGE }]);
-        setOpenSessions({});
+        setDraftSessionTitle('');
         setChatStatus(
           hasGeminiConfig
             ? 'Sign in to start a Gemini-powered chat.'
@@ -308,11 +449,9 @@ function App() {
         };
       });
       setSessionList(normalizedSessions);
-      setOpenSessions(
-        normalizedSessions.reduce((acc, item, index) => ({ ...acc, [item.id]: index === 0 }), {})
-      );
       setActiveSessionId(null);
       setMessages([{ role: 'assistant', text: INITIAL_ASSISTANT_MESSAGE }]);
+      setDraftSessionTitle('');
       setChatStatus(
         normalizedSessions.length > 0
           ? 'New chat ready. Previous conversations are available in History.'
@@ -371,16 +510,14 @@ function App() {
     setSessionList([]);
     setActiveSessionId(null);
     setMessages([{ role: 'assistant', text: INITIAL_ASSISTANT_MESSAGE }]);
+    setDraft('');
+    setDraftSessionTitle('');
   };
 
   const toggleTag = (tag) => {
     setSelectedTags((current) =>
       current.includes(tag) ? current.filter((entry) => entry !== tag) : [...current, tag]
     );
-  };
-
-  const toggleSession = (sessionId) => {
-    setOpenSessions((current) => ({ ...current, [sessionId]: !current[sessionId] }));
   };
 
   const openBreathing = () => {
@@ -410,18 +547,20 @@ function App() {
     setActiveSessionId(sessionId);
     setActivePage('session');
     setMessages(selected?.messages?.length ? selected.messages : [{ role: 'assistant', text: INITIAL_ASSISTANT_MESSAGE }]);
+    setDraft('');
+    setDraftSessionTitle('');
     setChatStatus('Loaded stored conversation.');
   };
 
-  const createNewSession = async () => {
+  const createNewSession = async (titleOverride = '') => {
     if (!supabase || !userId) {
       setChatStatus('Sign in first to start a session.');
       return null;
     }
-    const title = `Session ${new Date().toLocaleDateString()}`;
+    const title = normalizeChatTitle(titleOverride, defaultChatTitle);
     const { data, error } = await supabase
       .from('therapy_sessions')
-        .insert({
+      .insert({
         user_id: userId,
         title,
         initial_mood_value: null,
@@ -434,31 +573,96 @@ function App() {
     }
     const nextSession = { ...data, messages: [] };
     setSessionList((current) => [nextSession, ...current]);
-    setOpenSessions((current) => ({ [data.id]: true, ...current }));
     setActiveSessionId(data.id);
+    setActivePage('session');
     setMessages([{ role: 'assistant', text: INITIAL_ASSISTANT_MESSAGE }]);
+    setDraft('');
+    setDraftSessionTitle('');
     setChatStatus('New session created. Your next message will be stored.');
-    return data.id;
+    return nextSession;
   };
 
-  const updateSessionInState = (sessionId, nextMessages, fallbackTitle) => {
+  const deleteSession = async (event, sessionId) => {
+    event.stopPropagation();
+    const wasActiveSession = activeSessionId === sessionId;
+
+    if (supabase && userId) {
+      const { error } = await supabase.from('therapy_sessions').delete().eq('id', sessionId).eq('user_id', userId);
+      if (error) {
+        setChatStatus(`Failed to delete chat: ${error.message}`);
+        return;
+      }
+    }
+
+    setSessionList((current) => current.filter((item) => item.id !== sessionId));
+
+    if (wasActiveSession) {
+      setActiveSessionId(null);
+      setMessages([{ role: 'assistant', text: INITIAL_ASSISTANT_MESSAGE }]);
+      setDraft('');
+      setDraftSessionTitle('');
+    }
+  };
+
+  const updateSessionInState = (sessionId, nextMessages, nextTitle) => {
     setSessionList((current) => {
       const existing = current.find((item) => item.id === sessionId);
+      const resolvedTitle = normalizeChatTitle(nextTitle, existing?.title || defaultChatTitle);
       const updated = {
         ...(existing || {
           id: sessionId,
-          title: fallbackTitle,
+          title: resolvedTitle,
           summary: null,
           started_at: new Date().toISOString(),
           session_status: 'active',
           initial_mood_value: null,
         }),
-        title: existing?.title || fallbackTitle,
+        title: resolvedTitle,
         messages: nextMessages,
       };
       const withoutCurrent = current.filter((item) => item.id !== sessionId);
       return [updated, ...withoutCurrent];
     });
+  };
+
+  const commitChatTitle = async (rawTitle) => {
+    const normalizedTitle = resolveSessionTitle(
+      rawTitle,
+      activeSession?.messages ?? messages,
+      activeSession?.title || defaultChatTitle
+    );
+
+    setChatTitleInput(normalizedTitle);
+
+    if (!activeSessionId) {
+      setDraftSessionTitle(normalizedTitle === defaultChatTitle ? '' : normalizedTitle);
+      return;
+    }
+
+    if (normalizedTitle === activeSession?.title) {
+      return;
+    }
+
+    setSessionList((current) =>
+      current.map((item) => (item.id === activeSessionId ? { ...item, title: normalizedTitle } : item))
+    );
+
+    if (!supabase || !userId) {
+      return;
+    }
+
+    const { error } = await supabase
+      .from('therapy_sessions')
+      .update({ title: normalizedTitle })
+      .eq('id', activeSessionId)
+      .eq('user_id', userId);
+
+    if (error) {
+      setChatStatus(`Failed to update chat name: ${error.message}`);
+      return;
+    }
+
+    setChatStatus('Chat name updated.');
   };
 
   const sendMessage = async () => {
@@ -472,7 +676,9 @@ function App() {
     }
     setIsTyping(true);
     setChatStatus('Saving your message...');
-    const currentSessionId = activeSessionId || (await createNewSession());
+    const currentTitleInput = normalizeChatTitle(chatTitleInput, draftSessionTitle || defaultChatTitle);
+    const createdSession = activeSessionId ? null : await createNewSession(currentTitleInput);
+    const currentSessionId = activeSessionId || createdSession?.id;
     if (!currentSessionId) {
       setIsTyping(false);
       return;
@@ -488,9 +694,15 @@ function App() {
       created_at: new Date().toISOString(),
     };
     const nextMessages = [...baseMessages, userMessage];
+    const sessionTitle = resolveSessionTitle(
+      activeSessionId ? currentTitleInput : createdSession?.title || currentTitleInput,
+      nextMessages,
+      activeSession?.title || createdSession?.title || defaultChatTitle
+    );
     setMessages(nextMessages);
     setDraft('');
-    const sessionTitle = value.slice(0, 60) || `Session ${new Date().toLocaleDateString()}`;
+    setDraftSessionTitle('');
+    setChatTitleInput(sessionTitle);
     const { error: titleError } = await supabase
       .from('therapy_sessions')
       .update({ title: sessionTitle })
@@ -703,7 +915,7 @@ function App() {
             </div>
             <div>
               <div className="logo-name">Ai Therapist</div>
-              <div className="logo-sub">{profileLabel}</div>
+              <div className="logo-sub">Personal support space</div>
             </div>
           </div>
 
@@ -722,7 +934,7 @@ function App() {
           </nav>
 
           <div className="sidebar-foot">
-            <div className="sidebar-note">Not a replacement for professional mental health care.</div>
+            <div className="sidebar-profile">{profileLabel}</div>
             <button className="sidebar-signout" type="button" onClick={handleSignOut}>
               Sign out
             </button>
@@ -732,26 +944,53 @@ function App() {
         <main className="main">
           {activePage === 'session' && (
             <section className="page active-page">
-              <header className="page-header">
-                <div>
-                  <h1 className="page-title">Therapy Session</h1>
-                  <p className="page-sub">
-                    {activeSessionId ? 'Gemini chat stored in Supabase.' : 'Start a new Gemini-backed conversation.'}
-                  </p>
+              <header className="chat-header">
+                <div className="chat-header-copy">
+                  <div className="chat-header-avatar" aria-hidden="true" />
+                  <div className="chat-header-text">
+                    <h1 className="page-title">{CHAT_HEADER_PROMPT}</h1>
+                    <input
+                      className="chat-title-input"
+                      type="text"
+                      aria-label="Chat name"
+                      value={chatTitleInput}
+                      onChange={(event) => {
+                        const { value: nextValue } = event.target;
+                        setChatTitleInput(nextValue);
+                        if (!activeSessionId) {
+                          setDraftSessionTitle(nextValue);
+                        }
+                      }}
+                      onBlur={(event) => {
+                        commitChatTitle(event.target.value);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          event.currentTarget.blur();
+                        }
+                        if (event.key === 'Escape') {
+                          event.preventDefault();
+                          const previousTitle = activeSession?.title || draftSessionTitle || defaultChatTitle;
+                          setChatTitleInput(previousTitle);
+                          if (!activeSessionId) {
+                            setDraftSessionTitle(previousTitle === defaultChatTitle ? '' : previousTitle);
+                          }
+                          event.currentTarget.blur();
+                        }
+                      }}
+                    />
+                  </div>
                 </div>
                 <div className="header-actions">
-                  <button className="btn-icon" type="button" aria-label="Toggle voice">
-                    VO
-                  </button>
-                  <button className="btn-sm" type="button" onClick={createNewSession}>
-                    + New
+                  <button className="btn-sm" type="button" onClick={() => createNewSession()}>
+                    <PlusIcon />
+                    <span>New chat</span>
                   </button>
                 </div>
               </header>
 
               <div className="messages" ref={messagesRef}>
-                <div className="status-note status-note-chat">{chatStatus}</div>
-
                 {messages.map((message, index) => (
                   <div
                     key={`${message.role}-${message.sequence_no || index}`}
@@ -776,6 +1015,9 @@ function App() {
 
               <div className="input-area">
                 <div className="input-row">
+                  <button className="mic-btn" type="button" aria-label="Voice message">
+                    <MicIcon />
+                  </button>
                   <input
                     className="input-box"
                     placeholder="Share what's on your mind..."
@@ -788,14 +1030,16 @@ function App() {
                       }
                     }}
                   />
-                  <button className="mic-btn" type="button">
-                    Mic
-                  </button>
-                  <button className="send-btn" type="button" onClick={sendMessage} disabled={isTyping || isSessionLoading}>
-                    Go
+                  <button
+                    className="send-btn"
+                    type="button"
+                    onClick={sendMessage}
+                    disabled={isTyping || isSessionLoading}
+                    aria-label="Send message"
+                  >
+                    <SendIcon />
                   </button>
                 </div>
-                <div className="hint">Press Enter to send | This is not a substitute for professional care</div>
               </div>
             </section>
           )}
@@ -906,38 +1150,27 @@ function App() {
                 )}
 
                 {sessionList.map((item) => {
-                  const isOpen = openSessions[item.id];
-                  const moodLabel = MOODS.find((mood) => mood.value === item.initial_mood_value)?.label || 'Unknown';
-                  const sessionMeta = `${new Date(item.started_at).toLocaleString()} | ${item.messages.length} messages | ${moodLabel}`;
+                  const sessionMeta = `${new Date(item.started_at).toLocaleString()} | ${item.messages.length} messages`;
 
                   return (
-                    <article key={item.id} className={`session-card ${isOpen ? 'open' : ''}`}>
-                      <button className="session-toggle" type="button" onClick={() => toggleSession(item.id)}>
+                    <article key={item.id} className={`session-card ${activeSessionId === item.id ? 'active' : ''}`}>
+                      <button className="session-open" type="button" onClick={() => loadSessionMessages(item.id)}>
                         <div className="session-row">
-                          <div className="session-icon">Log</div>
+                          <div className="session-icon">AT</div>
                           <div className="session-copy">
                             <div className="session-title">{item.title}</div>
                             <div className="session-meta">{sessionMeta}</div>
                           </div>
-                          <span className={`session-chevron ${isOpen ? 'open' : ''}`}>V</span>
                         </div>
                       </button>
-
-                      {isOpen && (
-                        <div className="session-msgs">
-                          <button className="btn-sm history-open-btn" type="button" onClick={() => loadSessionMessages(item.id)}>
-                            Open session
-                          </button>
-                          {item.messages.map((message, index) => (
-                            <div
-                              key={`${item.id}-${message.sequence_no || index}`}
-                              className={`hist-bubble ${message.role === 'user' ? 'user' : 'ai'}`}
-                            >
-                              {message.text}
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                      <button
+                        className="session-delete"
+                        type="button"
+                        aria-label={`Delete ${item.title}`}
+                        onClick={(event) => deleteSession(event, item.id)}
+                      >
+                        <TrashIcon />
+                      </button>
                     </article>
                   );
                 })}
@@ -992,7 +1225,7 @@ function App() {
                     cy="80"
                     r="70"
                     fill="none"
-                    stroke="#7d9b76"
+                    stroke="var(--sidebar-accent-strong)"
                     strokeWidth="5"
                     strokeDasharray="439.8"
                     strokeDashoffset={ringOffset}
@@ -1016,30 +1249,6 @@ function App() {
       </div>
     </div>
   );
-}
-
-function IconBase({ children }) {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      {children}
-    </svg>
-  );
-}
-
-function ChatIcon() {
-  return <IconBase><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></IconBase>;
-}
-
-function PulseIcon() {
-  return <IconBase><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></IconBase>;
-}
-
-function BookIcon() {
-  return <IconBase><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" /></IconBase>;
-}
-
-function HeartIcon() {
-  return <IconBase><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></IconBase>;
 }
 
 export default App;
