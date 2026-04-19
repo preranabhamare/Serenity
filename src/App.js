@@ -219,6 +219,19 @@ function buildBlankJournalPage(pageNumber) {
   };
 }
 
+function getJournalPreviewText(content) {
+  const orderedValues = CBT_FIELDS.map((field) => content?.[field.key] || '')
+    .map((value) => `${value}`.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+
+  if (orderedValues.length === 0) {
+    return 'Start writing to preview this page.';
+  }
+
+  const preview = orderedValues.join(' ').slice(0, 120).trim();
+  return preview.length < orderedValues.join(' ').length ? `${preview}...` : preview;
+}
+
 function App() {
   const [session, setSession] = useState(null);
   const [authMode, setAuthMode] = useState('login');
@@ -268,6 +281,7 @@ function App() {
   const [isJournalSaving, setIsJournalSaving] = useState(false);
   const messagesRef = useRef(null);
   const recognitionRef = useRef(null);
+  const activeSessionIdRef = useRef(null);
 
   const userId = session?.user?.id ?? null;
   const profileLabel = session?.user?.user_metadata?.display_name || session?.user?.email || 'Signed in user';
@@ -323,6 +337,10 @@ function App() {
     () => activeJournal?.pages.find((page) => page.id === activeJournalPageId) ?? null,
     [activeJournal, activeJournalPageId]
   );
+
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
 
   useEffect(() => {
     if (!messagesRef.current) {
@@ -539,7 +557,7 @@ function App() {
         }));
         return {
           id: item.id,
-          title: resolveSessionTitle(item.title || '', normalizedMessages, item.title || defaultChatTitle),
+          title: resolveSessionTitle(item.title || '', normalizedMessages, item.title || 'Chat'),
           summary: item.summary,
           started_at: item.started_at,
           session_status: item.session_status,
@@ -548,20 +566,30 @@ function App() {
         };
       });
       setSessionList(normalizedSessions);
-      setActiveSessionId(null);
-      setMessages([{ role: 'assistant', text: INITIAL_ASSISTANT_MESSAGE }]);
-      setChatStatus(
-        normalizedSessions.length > 0
-          ? 'New chat ready. Previous conversations are available in History.'
-          : 'No sessions yet. Start a new conversation.'
-      );
+      const currentActiveSessionId = activeSessionIdRef.current;
+      const preservedSession = normalizedSessions.find((item) => item.id === currentActiveSessionId) ?? null;
+      if (preservedSession) {
+        setActiveSessionId(preservedSession.id);
+        setMessages(
+          preservedSession.messages.length ? preservedSession.messages : [{ role: 'assistant', text: INITIAL_ASSISTANT_MESSAGE }]
+        );
+        setChatStatus('Conversation history refreshed.');
+      } else {
+        setActiveSessionId(null);
+        setMessages([{ role: 'assistant', text: INITIAL_ASSISTANT_MESSAGE }]);
+        setChatStatus(
+          normalizedSessions.length > 0
+            ? 'New chat ready. Previous conversations are available in History.'
+            : 'No sessions yet. Start a new conversation.'
+        );
+      }
       setIsSessionLoading(false);
     }
     loadChatSessions();
     return () => {
       ignore = true;
     };
-  }, [defaultChatTitle, userId]);
+  }, [userId]);
 
   useEffect(() => {
     let ignore = false;
@@ -840,38 +868,46 @@ function App() {
       return;
     }
 
-    const SpeechRecognitionApi = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = new SpeechRecognitionApi();
-    recognition.lang = 'en-US';
-    recognition.interimResults = true;
-    recognition.maxAlternatives = 1;
-    recognition.continuous = false;
+    if (!recognitionRef.current) {
+      const SpeechRecognitionApi = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognition = new SpeechRecognitionApi();
+      recognition.lang = 'en-US';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      recognition.continuous = false;
 
-    recognition.onstart = () => {
-      setIsListening(true);
-      setSpeechStatus('Listening...');
-    };
+      recognition.onstart = () => {
+        setIsListening(true);
+        setSpeechStatus('Listening...');
+      };
 
-    recognition.onresult = (event) => {
-      const transcript = Array.from(event.results)
-        .map((result) => result[0]?.transcript || '')
-        .join(' ')
-        .trim();
-      setDraft(transcript);
-    };
+      recognition.onresult = (event) => {
+        const transcript = Array.from(event.results)
+          .map((result) => result[0]?.transcript || '')
+          .join(' ')
+          .trim();
 
-    recognition.onerror = (event) => {
-      setSpeechStatus(event.error === 'not-allowed' ? 'Microphone permission was denied.' : 'Speech capture failed.');
-      setIsListening(false);
-    };
+        if (!transcript) {
+          return;
+        }
 
-    recognition.onend = () => {
-      setIsListening(false);
-      setSpeechStatus((current) => (current === 'Listening...' ? 'Speech captured.' : current));
-    };
+        setDraft((current) => (current ? `${current} ${transcript}` : transcript));
+      };
 
-    recognitionRef.current = recognition;
-    recognition.start();
+      recognition.onerror = (event) => {
+        setSpeechStatus(event.error === 'not-allowed' ? 'Microphone permission was denied.' : 'Speech capture failed.');
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+        setSpeechStatus((current) => (current === 'Listening...' ? 'Speech captured.' : current));
+      };
+
+      recognitionRef.current = recognition;
+    }
+
+    recognitionRef.current.start();
   };
 
   const sendMessage = async () => {
@@ -1570,7 +1606,6 @@ function App() {
                     <aside className="journal-sidebar">
                       <div className="journal-sidebar-top">
                         <button className="journal-tab active" type="button">Pages</button>
-                        <button className="journal-tab" type="button" disabled>Cards</button>
                       </div>
                       <div className="journal-pages">
                         {activeJournal?.pages?.map((page) => (
@@ -1583,7 +1618,16 @@ function App() {
                               setActiveJournalPageId(page.id);
                             }}
                           >
-                            <span>{page.page_no}</span>
+                            <div className="journal-page-preview">
+                              <div className="journal-page-preview-header">
+                                <span className="journal-page-preview-title">{page.title || `Page ${page.page_no}`}</span>
+                                <span className="journal-page-preview-number">{page.page_no}</span>
+                              </div>
+                              <div className="journal-page-preview-body">
+                                <div className="journal-page-preview-lines" aria-hidden="true" />
+                                <p>{getJournalPreviewText(page.content)}</p>
+                              </div>
+                            </div>
                           </button>
                         ))}
                         <button className="journal-add-page" type="button" onClick={addJournalPage}>
