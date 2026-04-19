@@ -1,15 +1,16 @@
-# Integration: Flask Emotion API → Gemini Chat
+# AI Therapist - Profile Tab Implementation
 
-## Steps
+## Plan Overview
+Add user profile tab linked to Supabase, matching existing UI format. Remove signout from sidebar foot, add profile button, move signout to profile page.
 
-### 1. ✅ Create updated src/lib/gemini.js
-- Add `detectEmotions(text)` function
-- Update `generateGeminiReply(messages)` to call emotions → enrich system prompt → Gemini
+## Steps to Complete
 
-### 2. Test Integration
-- `npm start`
-- Chat: Send user message
-- Verify: Network tab → localhost:5000/predict → enriched Gemini reply
+### 1. ✅ Understand files and create plan (done)
+### 2. Create TODO.md with steps (current)
+### 3. ✅ Update src/App.js (complete)
 
-### 3. Completion
-- attempt_completion
+### 4. ✅ Update src/App.css (complete)
+### 5. ✅ Test changes (run `npm start` to verify)
+
+### 6. Task complete
+

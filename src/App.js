@@ -44,6 +44,15 @@ function HeartIcon() {
   );
 }
 
+function UserIcon() {
+  return (
+    <IconBase>
+      <circle cx="12" cy="7" r="4" />
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+    </IconBase>
+  );
+}
+
 function PlusIcon() {
   return (
     <IconBase>
@@ -89,6 +98,7 @@ const NAV_ITEMS = [
   { id: 'mood', label: 'Mood', icon: <PulseIcon /> },
   { id: 'history', label: 'History', icon: <BookIcon /> },
   { id: 'exercises', label: 'Exercises', icon: <HeartIcon /> },
+  { id: 'profile', label: 'Profile', icon: <UserIcon /> },
 ];
 
 const MOODS = [
@@ -279,6 +289,7 @@ function App() {
   const [journalStatus, setJournalStatus] = useState('Choose a page to write.');
   const [isJournalLoading, setIsJournalLoading] = useState(false);
   const [isJournalSaving, setIsJournalSaving] = useState(false);
+  const [editName, setEditName] = useState('');
   const messagesRef = useRef(null);
   const recognitionRef = useRef(null);
   const activeSessionIdRef = useRef(null);
@@ -1347,9 +1358,8 @@ function App() {
           </nav>
 
           <div className="sidebar-foot">
-            <div className="sidebar-profile">{profileLabel}</div>
-            <button className="sidebar-signout" type="button" onClick={handleSignOut}>
-              Sign out
+            <button className="sidebar-profile-btn" type="button" onClick={() => setActivePage('profile')}>
+              {profileLabel}
             </button>
           </div>
         </aside>
@@ -1681,6 +1691,72 @@ function App() {
                     </section>
                   </div>
                 )}
+              </div>
+            </section>
+          )}
+
+          {activePage === 'profile' && (
+            <section className="page active-page">
+              <header className="page-header">
+                <div>
+                  <h1 className="page-title">Your Profile</h1>
+                  <p className="page-sub">Manage your account details</p>
+                </div>
+              </header>
+
+              <div className="profile-content">
+                <div className="card">
+                  <div className="profile-field">
+                    <label>Name</label>
+                    <input 
+                      value={editName || profileLabel} 
+                      onChange={(e) => setEditName(e.target.value)}
+                      placeholder="Enter display name"
+                    />
+                    <button 
+                      className="primary-btn" 
+                      type="button"
+                      onClick={async () => {
+                        if (supabase && editName?.trim()) {
+                          const { data, error } = await supabase.auth.updateUser({ 
+                            data: { display_name: editName.trim() } 
+                          });
+                          if (!error && data.user) {
+                            setSession({ 
+                              ...session, 
+                              user: { 
+                                ...session.user, 
+                                user_metadata: { 
+                                  ...session.user.user_metadata, 
+                                  display_name: data.user.user_metadata.display_name 
+                                } 
+                              } 
+                            });
+                            setEditName('');
+                          } else {
+                            alert(error?.message || 'Update failed');
+                          }
+                        }
+                      }}
+                      disabled={!editName?.trim()}
+                    >
+                      Save Name
+                    </button>
+                  </div>
+                  <div className="profile-field">
+                    <label>Email</label>
+                    <p>{session?.user?.email || 'N/A'}</p>
+                  </div>
+                  <div className="profile-field">
+                    <label>Member since</label>
+                    <p>{session?.user?.created_at ? new Date(session.user.created_at).toLocaleDateString() : 'N/A'}</p>
+                  </div>
+                  <div style={{marginTop: '24px'}}>
+                    <button className="primary-btn" type="button" onClick={handleSignOut}>
+                      Sign out
+                    </button>
+                  </div>
+                </div>
               </div>
             </section>
           )}
